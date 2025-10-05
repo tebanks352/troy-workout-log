@@ -1,0 +1,248 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Troy Workout Log</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial; margin: 0; padding: 0 12px 40px; }
+    header { position: sticky; top: 0; background: #fff; padding: 12px 0; border-bottom: 1px solid #eee; z-index: 10; }
+    h1 { font-size: 20px; margin: 0 0 4px 0; }
+    .bar { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
+    select, input, button, textarea { font-size: 16px; padding: 10px; border-radius: 8px; border: 1px solid #ccc; }
+    .section { margin: 14px 0; }
+    .row { display: grid; grid-template-columns: 1.3fr 0.8fr 0.7fr 0.7fr 0.6fr 1.2fr; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px dashed #eee; }
+    .row.header { font-weight: 600; }
+    .muted { color: #666; font-size: 13px; }
+    .pill { background: #eef7f0; padding: 6px 10px; border-radius: 999px; display:inline-block; }
+    .small { font-size: 13px; }
+    .flex { display:flex; gap:8px; align-items:center; }
+    .sticky-actions { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #eee; padding: 10px; display:flex; gap:8px; }
+    .warn { background:#fff8e1; border:1px solid #ffe082; padding:10px; border-radius:8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Workout Log</h1>
+    <div class="bar">
+      <label class="small">Week</label>
+      <select id="weekSel"></select>
+      <label class="small">Day</label>
+      <select id="daySel"></select>
+      <input id="dateInp" type="date"/>
+      <button id="newDayBtn">New Day</button>
+    </div>
+    <div class="muted small">Tip: On iPhone Safari, Share → Add to Home Screen for app-like experience.</div>
+  </header>
+
+  <div class="section">
+    <div class="flex">
+      <label>Sleep (hrs)</label><input id="sleepInp" type="number" step="0.5" min="0" style="width:90px">
+      <label>Soreness (1–10)</label><input id="sorenessInp" type="number" min="1" max="10" style="width:90px">
+      <label>Protein Hit</label>
+      <select id="proteinSel"><option value=""></option><option value="Y">Y</option><option value="N">N</option></select>
+    </div>
+  </div>
+
+  <div class="section">
+    <label>Warm-up Notes</label>
+    <textarea id="warmupTxt" rows="2" placeholder="Plan, joint care, cues..." style="width:100%"></textarea>
+  </div>
+
+  <div class="section">
+    <div class="row header">
+      <div>Exercise</div><div>Weight</div><div>Sets</div><div>Reps</div><div>RIR</div><div>Notes</div>
+    </div>
+    <div id="exerciseRows"></div>
+    <div class="flex" style="margin-top:8px;">
+      <input id="customName" placeholder="Custom exercise" style="flex:1">
+      <button id="addCustom">Add</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="warn small">Data auto-saves to your phone (localStorage). Use Export to save a backup file.</div>
+  </div>
+
+  <div class="sticky-actions">
+    <button id="saveBtn">Save</button>
+    <button id="exportBtn">Export CSV</button>
+    <button id="clearBtn">Clear Day</button>
+  </div>
+
+<script>
+const defaultPlan = {
+  "Week 1": {
+    "Day 1 – Chest + Triceps": ["Incline Dumbbell Press","Flat Dumbbell Press","Cable/Band Fly","Triceps Pushdown","Overhead DB Triceps Extension"],
+    "Day 2 – Back + Core": ["Bent-over DB Row","Lat Pulldown / Band Pull-down","Face Pull / Rear Delt Cable","Core: Cable Crunch / Hanging Knee Raise"],
+    "Day 3 – Legs (Quads + Glutes)": ["Goblet/DB Squat","DB Romanian Deadlift","Walking Lunge","Finisher: Kettlebell Swing / Step-up"],
+    "Day 4 – Shoulders + Abs": ["DB Shoulder Press","Lateral Raise","Rear Delt Fly / Cable","Core: Plank (sec) / Ab Wheel (reps)"],
+    "Day 5 – Arms + Core": ["DB Biceps Curl","Hammer/Incline Curl","Triceps Pushdown / Overhead Extension","Farmer’s Carry (sec) / Grip"],
+    "Day 6 – Conditioning / Recovery": ["Row / Walk (time)","Mobility / Stretching (min)"],
+    "Day 7 – Rest / Recovery": ["Light mobility / Walk","Notes"]
+  },
+  "Week 2": {},
+  "Week 3": {},
+  "Week 4": {}
+};
+// copy week1 structure to weeks 2-4
+for (let w of ["Week 2","Week 3","Week 4"]) defaultPlan[w] = JSON.parse(JSON.stringify(defaultPlan["Week 1"]));
+
+const weeks = Object.keys(defaultPlan);
+const weekSel = document.getElementById('weekSel');
+const daySel  = document.getElementById('daySel');
+const dateInp = document.getElementById('dateInp');
+const sleepInp = document.getElementById('sleepInp');
+const sorenessInp = document.getElementById('sorenessInp');
+const proteinSel = document.getElementById('proteinSel');
+const warmupTxt = document.getElementById('warmupTxt');
+const exerciseRows = document.getElementById('exerciseRows');
+const customName = document.getElementById('customName');
+
+function option(el, v){ const o = document.createElement('option'); o.value=v; o.textContent=v; el.appendChild(o); }
+
+// Populate week/day
+weeks.forEach(w => option(weekSel, w));
+function refreshDays(){
+  daySel.innerHTML='';
+  const w = weekSel.value;
+  Object.keys(defaultPlan[w]).forEach(d => option(daySel, d));
+}
+weekSel.value = "Week 1";
+refreshDays();
+daySel.value = "Day 1 – Chest + Triceps";
+
+function keyFor(w, d, dt){ return `troylog::${w}::${d}::${dt||""}`; }
+
+function renderExercises(){
+  exerciseRows.innerHTML='';
+  const w = weekSel.value, d = daySel.value;
+  const list = defaultPlan[w][d] || [];
+  for (let i=0;i<list.length;i++){
+    const r = document.createElement('div'); r.className='row';
+    r.innerHTML = `
+      <input placeholder="Exercise" value="${list[i]}">
+      <input placeholder="Weight">
+      <input placeholder="Sets">
+      <input placeholder="Reps">
+      <input placeholder="RIR">
+      <input placeholder="Notes">
+    `;
+    exerciseRows.appendChild(r);
+  }
+}
+
+function loadDay(){
+  const dt = dateInp.value || new Date().toISOString().slice(0,10);
+  dateInp.value = dt;
+  const data = JSON.parse(localStorage.getItem(keyFor(weekSel.value, daySel.value, dt)) || "{}");
+  sleepInp.value = data.sleep || "";
+  sorenessInp.value = data.soreness || "";
+  proteinSel.value = data.protein || "";
+  warmupTxt.value = data.warmup || "";
+  renderExercises();
+  // populate exercise row data if exists
+  if (data.rows){
+    const rows = exerciseRows.querySelectorAll('.row');
+    data.rows.forEach((obj, idx) => {
+      if (rows[idx]){
+        const inputs = rows[idx].querySelectorAll('input');
+        inputs[0].value = obj.exercise || "";
+        inputs[1].value = obj.weight || "";
+        inputs[2].value = obj.sets || "";
+        inputs[3].value = obj.reps || "";
+        inputs[4].value = obj.rir || "";
+        inputs[5].value = obj.notes || "";
+      }
+    });
+  }
+}
+
+function saveDay(){
+  const dt = dateInp.value;
+  const rows = [];
+  exerciseRows.querySelectorAll('.row').forEach(r => {
+    const [ex, w, s, rp, rir, nt] = r.querySelectorAll('input');
+    rows.push({exercise:ex.value, weight:w.value, sets:s.value, reps:rp.value, rir:rir.value, notes:nt.value});
+  });
+  const data = {
+    sleep: sleepInp.value,
+    soreness: sorenessInp.value,
+    protein: proteinSel.value,
+    warmup: warmupTxt.value,
+    rows
+  };
+  localStorage.setItem(keyFor(weekSel.value, daySel.value, dt), JSON.stringify(data));
+  alert("Saved!");
+}
+
+function clearDay(){
+  if (!confirm("Clear entries for this day?")) return;
+  const dt = dateInp.value;
+  localStorage.removeItem(keyFor(weekSel.value, daySel.value, dt));
+  loadDay();
+}
+
+function addCustom(){
+  const name = customName.value.trim();
+  if (!name) return;
+  const r = document.createElement('div'); r.className='row';
+  r.innerHTML = `
+    <input value="${name}">
+    <input placeholder="Weight">
+    <input placeholder="Sets">
+    <input placeholder="Reps">
+    <input placeholder="RIR">
+    <input placeholder="Notes">
+  `;
+  exerciseRows.appendChild(r);
+  customName.value = "";
+}
+
+function exportCSV(){
+  let csv = "Week,Day,Date,Sleep,Soreness,Protein,Exercise,Weight,Sets,Reps,RIR,Notes\n";
+  for (let w of weeks){
+    for (let d of Object.keys(defaultPlan[w])){
+      // iterate over all keys in localStorage with prefix
+      for (let i=0;i<localStorage.length;i++){
+        const k = localStorage.key(i);
+        const prefix = `troylog::${w}::${d}::`;
+        if (k.startsWith(prefix)){
+          const dt = k.substring(prefix.length);
+          const data = JSON.parse(localStorage.getItem(k) || "{}");
+          (data.rows || []).forEach(row => {
+            csv += `${w},${d},${dt},${data.sleep||""},${data.soreness||""},${data.protein||""},`+
+                   `"${(row.exercise||"").replace(/"/g,'""')}",${row.weight||""},${row.sets||""},${row.reps||""},${row.rir||""},`+
+                   `"${(row.notes||"").replace(/"/g,'""')}"\n`;
+          });
+        }
+      }
+    }
+  }
+  const blob = new Blob([csv], {type:"text/csv"});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = "troy_workout_log_export.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+document.getElementById('saveBtn').addEventListener('click', saveDay);
+document.getElementById('clearBtn').addEventListener('click', clearDay);
+document.getElementById('addCustom').addEventListener('click', addCustom);
+document.getElementById('exportBtn').addEventListener('click', exportCSV);
+document.getElementById('newDayBtn').addEventListener('click', () => {
+  dateInp.value = new Date().toISOString().slice(0,10);
+  loadDay();
+});
+weekSel.addEventListener('change', () => { refreshDays(); loadDay(); });
+daySel.addEventListener('change', loadDay);
+
+loadDay();
+</script>
+</body>
+</html>
